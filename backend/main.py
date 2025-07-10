@@ -48,16 +48,24 @@ async def optimize_route(coords: Coordinates):
         
         with torch.no_grad():
             tour = model.greedy(points)[0]  # [0] para remover batch dim
-            distance = model.vrp_len(points, tour.unsqueeze(0)).item()
+            
+            # Cerrar el ciclo: añadir el primer punto al final del tour
+            closed_tour = torch.cat([
+                tour,
+                tour[0].unsqueeze(0)  # Añade el primer punto nuevamente
+            ])
+            
+            distance = model.vrp_len(points, closed_tour.unsqueeze(0)).item()
         
         return {
-            "route": tour.tolist(),
+            "route": closed_tour.tolist(),
             "distance": distance,
-            "vehicle_routes": [tour.tolist()]
+            "vehicle_routes": [closed_tour.tolist()]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
+    
+# Ruta de salud para verificar que la API está funcionando
 @app.get("/")
 def health_check():
     return {"status": "API lista con modelo cargado"}
