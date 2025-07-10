@@ -1,35 +1,42 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React, { useState } from 'react';
+import Map from './components/Map';
+import './App.css';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [route, setRoute] = useState(null);
+
+  const optimizeRoute = async () => {
+    const response = await fetch('http://localhost:8000/optimize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        points: [
+          [40.71, -74.01], // NYC
+          [34.05, -118.24], // LA
+          [41.88, -87.62]   // Chicago
+        ]
+      })
+    });
+    setRoute(await response.json());
+  };
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+    <div className="app-container">
+      <h1>Optimizador de Rutas VRP</h1>
+      <button onClick={optimizeRoute} className="optimize-btn">
+        Calcular Ruta Óptima
+      </button>
+      <div className="map-container">
+        <Map route={route} />
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+      {route && (
+        <div className="route-info">
+          <h3>Resultados:</h3>
+          <pre>{JSON.stringify(route, null, 2)}</pre>
+        </div>
+      )}
+    </div>
+  );
 }
 
-export default App
+export default App;
