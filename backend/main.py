@@ -4,6 +4,8 @@ import numpy as np # NumPy para operaciones numéricas
 from pydantic import BaseModel # Pydantic para validación de datos
 from typing import List # List para manejar listas de puntos
 from model import PointerNet # Importar el modelo PointerNet desde model.py
+from fastapi.middleware.cors import CORSMiddleware # Middleware para manejar CORS
+
 
 # --- Bloque de diagnóstico ---  Porque no me funciono lacarga del .pth
 print("\n Verificando estructura del archivo .pth:")
@@ -22,7 +24,18 @@ model.load_state_dict(model_data['model_state_dict'])  # Accede al state_dict re
 model.eval()
 # ------------------------------------
 
-app = FastAPI() # Instancia de la aplicación FastAPI
+app = FastAPI() # Instancia de la aplicac# Configura CORS (esto debe estar ANTES de definir los endpoints)
+
+# Configura CORS (esto debe estar ANTES de definir los endpoints)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permite todos los orígenes (en desarrollo)
+    allow_methods=["POST", "OPTIONS"],  # Añade OPTIONS para preflight
+    allow_headers=["*"],
+)
+
+
+
 
 class Coordinates(BaseModel): 
     points: List[List[float]]  # Formato: [[lat1, lon1], [lat2, lon2], ...]
