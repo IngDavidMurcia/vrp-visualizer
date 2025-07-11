@@ -52,9 +52,24 @@ const originalCoordinates = [
         
         // Añadir marcadores iniciales
         originalCoordinates.forEach(([lat, lon], i) => {
-          new maplibregl.Marker()
+        // Crear elemento HTML personalizado para el marcador
+        const markerElement = document.createElement('div');
+        markerElement.className = 'custom-marker';
+  
+        // Texto diferente para depósito vs puntos
+        const markerText = i === 0 ? 'A' : `P${i}`; // "A" para acopio, "P1", "P2", etc.
+  
+        markerElement.innerHTML = `
+          <div class="marker-container">
+          <div class="marker-circle" style="background: ${i === 0 ? '#FFA500' : '#3FB1CE'}">
+          ${markerText}
+          </div>
+          </div>
+          `;
+
+          new maplibregl.Marker({element: markerElement})
             .setLngLat([lon, lat])
-            .setPopup(new maplibregl.Popup().setText(`Punto ${i}`))
+            .setPopup(new maplibregl.Popup().setText(i === 0 ? 'Centro de acopio' : `Punto ${i}`))
             .addTo(map.current);
         });
       });
