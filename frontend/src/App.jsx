@@ -8,33 +8,55 @@ function App() {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const [mapInitialized, setMapInitialized] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [numVehicles, setNumVehicles] = useState(1);
 
-  // Coordenadas originales (deben coincidir con las enviadas al backend)
-  const originalCoordinates = [
-    [40.7128, -74.0060], // Nueva York
-    [34.0522, -118.2437], // Los Ángeles
-    [41.8781, -87.6298]  // Chicago
-  ];
+  // Coordenadas de Colombia
+  // (el primer punto es el depósito/centro de acopio)
+const originalCoordinates = [
+  [4.5709, -74.2973],  // Depósito (Bogotá centro)
+  [6.2318, -75.5636],  // Medellín
+  [4.639, -74.0817],   // Bogotá (otro punto)
+  [4.4353, -75.2110]   // Ibagué
+];
+
+  const clearRoute = () => {
+    setRoute(null);
+    try {
+    if (map.current?.getSource('route')) {
+      map.current.removeLayer('route');
+      map.current.removeSource('route');
+    }
+  } catch (error) {
+    console.log("Error al limpiar ruta (puede ignorarse):", error.message);
+  }
+  };
 
   // 1. Inicializar el mapa
   useEffect(() => {
     if (!mapContainer.current) return;
 
-    // 1. Validar que la API key esté configurada
-    const mapTilerKey = 'wNHJXUkCv4sp6GAPuvsq'; // ¡API Key de mapTiler
+    const mapTilerKey = 'wNHJXUkCv4sp6GAPuvsq'; // API Key
 
-    // 2. Inicializar mapa con manejo de errores
     try {
       map.current = new maplibregl.Map({
         container: mapContainer.current,
         style: `https://api.maptiler.com/maps/streets/style.json?key=${mapTilerKey}`,
-        center: [-98.5833, 39.8333],
-        zoom: 3
+        center: [-74.2973, 4.5709], // Centro de Colombia
+        zoom: 4
       });
 
       map.current.on('load', () => {
         console.log('Mapa cargado correctamente');
         setMapInitialized(true);
+        
+        // Añadir marcadores iniciales
+        originalCoordinates.forEach(([lat, lon], i) => {
+          new maplibregl.Marker()
+            .setLngLat([lon, lat])
+            .setPopup(new maplibregl.Popup().setText(`Punto ${i}`))
+            .addTo(map.current);
+        });
       });
 
       map.current.on('error', (e) => {
@@ -62,17 +84,19 @@ function App() {
     }
 
     try {
-      // Verificar que el mapa esté realmente cargado
-      if (!map.current.loaded()) {
-        console.warn('Mapa no está listo');
-        return;
-      }
-
-      // Convertir índices a coordenadas [lon, lat]
-      const routeCoords = route.route.map(index => {
+      // 1. Obtener coordenadas completas [lon, lat]
+      const getCoords = (index) => {
         const [lat, lon] = originalCoordinates[index];
         return [lon, lat];
-      });
+      };
+
+      // 2. Añadir el depósito al inicio y final de la ruta
+      const routeCoords = route.route.map(index => getCoords(index));
+      const fullRoute = [
+        getCoords(0), // Depósito inicial
+        ...routeCoords,
+        getCoords(0)  // Depósito final
+      ];
 
       // Limpiar capa anterior
       if (map.current.getSource('route')) {
@@ -87,11 +111,34 @@ function App() {
           type: 'Feature',
           geometry: {
             type: 'LineString',
-            coordinates: routeCoords
+            coordinates: fullRoute // Usar fullRoute para incluir el depósito, sino usar routeCoords
           }
         }
       });
+      // Añadir capa de ruta
+      map.current.addLayer({
+        id: 'route',
+        type: 'line',
+        source: 'route',
+        paint: {
+          'line-color': '#FF0000',
+          'line-width': 4,
+          'line-dasharray': [2, 2] // Opcional: estilo de línea punteada
+        }
+      });
+      // Añadir marcadores (incluyendo depósito con estilo diferente)
+      originalCoordinates.forEach(([lat, lon], i) => {
+        const marker = new maplibregl.Marker({
+          color: i === 0 ? '#FFA500' : '#3FB1CE'  // Naranja para depósito
+      })  
+          .setLngLat([lon, lat])
+          .setPopup(new maplibregl.Popup().setText(
+            i === 0 ? 'Centro de acopio' : `Punto ${i}`
+        ))
+          .addTo(map.current);
+      });
 
+      /*
       map.current.addLayer({
         id: 'route',
         type: 'line',
@@ -100,19 +147,12 @@ function App() {
           'line-color': '#FF0000',
           'line-width': 4
         }
-      });
+      });*/
 
-      // Añadir marcadores
-      originalCoordinates.forEach(([lat, lon], i) => {
-        new maplibregl.Marker()
-          .setLngLat([lon, lat])
-          .setPopup(new maplibregl.Popup().setText(`Punto ${i}`))
-          .addTo(map.current);
-      });
 
       // Ajustar vista
       const bounds = new maplibregl.LngLatBounds();
-      routeCoords.forEach(coord => bounds.extend(coord));
+      fullRoute.forEach(coord => bounds.extend(coord));
       map.current.fitBounds(bounds, { padding: 50 });
 
     } catch (error) {
@@ -121,37 +161,82 @@ function App() {
   }, [route, mapInitialized]);
 
   const optimizeRoute = async () => {
+    setIsLoading(true);
     try {
       const response = await fetch('http://localhost:8000/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ points: originalCoordinates })
+        body: JSON.stringify({ 
+          points: originalCoordinates,
+          num_vehicles: numVehicles
+        })
       });
+
+      if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+      
       const data = await response.json();
-      console.log("Datos recibidos:", data);
       setRoute(data);
+      
     } catch (error) {
       console.error("Error:", error);
+      alert(`Error: ${error.message}`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
     <div className="app-container">
-      <h1>Optimizador de Rutas VRP</h1>
-      <button onClick={optimizeRoute}>Calcular Ruta</button>
+      <h1>Optimizador IA de Rutas (VRP)</h1>
+      
+      <div className="controls">
+        <select 
+          value={numVehicles} 
+          onChange={(e) => setNumVehicles(parseInt(e.target.value))}
+        >
+          <option value={1}>1 Vehículo</option>
+          <option value={2}>2 Vehículos</option>
+          <option value={3}>3 Vehículos</option>
+        </select>
+
+        <button onClick={optimizeRoute} disabled={isLoading}>
+          {isLoading ? 'Calculando...' : 'Calcular Ruta'}
+        </button>
+        
+        <button onClick={clearRoute} className="secondary-btn">
+          Limpiar Ruta
+        </button>
+      </div>
+
       <div 
         ref={mapContainer} 
         className="map-container" 
-        style={{ 
-          height: '500px', 
-          width: '100%',
-          border: '1px solid red' // Temporal para debug
-        }}
+        style={{ border: '2px solid #ccc' }}
       />
+
       {route && (
         <div className="route-info">
-          <h3>Ruta: {route.route.join(" → ")}</h3>
-          <p>Distancia: {(route.distance / 1000).toFixed(2)} km</p>
+          <h3>Ruta optimizada:</h3>
+          <p><strong>Secuencia:</strong> Depósito → {route.route.map(i => `Punto ${i}`).join(" → ")} → Depósito</p>
+          <p><strong>Distancia total:</strong> {(route.distance / 1000).toFixed(2)} km</p>
+        
+          <div className="route-details">
+            <h4>Coordenadas:</h4>
+              <ul>
+                <li><strong>Depósito:</strong> {originalCoordinates[0][0]}, {originalCoordinates[0][1]}</li>
+                {route.route.map((index, i) => (
+                <li key={i}>
+                <strong>Punto {index}:</strong> {originalCoordinates[index][0]}, {originalCoordinates[index][1]}
+                </li>
+                ))}
+              </ul>
+          </div>
+        </div>
+      )}
+
+      {!mapInitialized && (
+        <div className="map-loading">
+          Cargando mapa... (Si no aparece, revisa la consola)
         </div>
       )}
     </div>

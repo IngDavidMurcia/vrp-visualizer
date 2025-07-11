@@ -47,20 +47,15 @@ async def optimize_route(coords: Coordinates):
         points = torch.tensor(coords.points, dtype=torch.float32).unsqueeze(0)  # Añadir dimensión de batch
         
         with torch.no_grad():
-            tour = model.greedy(points)[0]  # [0] para remover batch dim
+            tour = model.greedy(points)[0]  # Indices de clientes (sin depositos)
             
-            # Cerrar el ciclo: añadir el primer punto al final del tour
-            closed_tour = torch.cat([
-                tour,
-                tour[0].unsqueeze(0)  # Añade el primer punto nuevamente
-            ])
-            
-            distance = model.vrp_len(points, closed_tour.unsqueeze(0)).item()
+            # Cerrar el ciclo: El modelo incluye el retorno a deposito en vrp_len, pero no en greedy
+            distance = model.vrp_len(points, tour.unsqueeze(0)).item()
         
         return {
-            "route": closed_tour.tolist(),
+            "route": tour.tolist(), #indice de clientes visitados
             "distance": distance,
-            "vehicle_routes": [closed_tour.tolist()]
+            "vehicle_routes": [tour.tolist()]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
