@@ -38,7 +38,7 @@ class Decoder(nn.Module):
 
 class PointerNet(nn.Module):
     def __init__(self, d=128):
-        super().__init__()
+        super(PointerNet, self).__init__()
         self.enc = Encoder(d)
         self.dec = Decoder(d)
     

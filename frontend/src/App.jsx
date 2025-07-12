@@ -4,37 +4,35 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
 import './mapPopupOverrides.css';
 
+// Listado predefinido de ciudades (7 Colombia + 3 EEUU)
+const PREDEFINED_CITIES = [
+  { name: "Bogotá (Centro)", coords: [4.5709, -74.2973], isDepot: true },
+  { name: "Medellín", coords: [6.2318, -75.5636] },
+  { name: "Cali", coords: [3.4516, -76.5320] },
+  { name: "Barranquilla", coords: [10.9639, -74.7964] },
+  { name: "Cartagena", coords: [10.3910, -75.4794] },
+  { name: "Bucaramanga", coords: [7.1193, -73.1227] },
+  { name: "Pereira", coords: [4.8143, -75.6946] },
+  { name: "New York", coords: [40.7128, -74.0060] },
+  { name: "Miami", coords: [25.7617, -80.1918] },
+  { name: "Los Angeles", coords: [34.0522, -118.2437] }
+];
+
 function App() {
   const [route, setRoute] = useState(null);
+  const [selectedCities, setSelectedCities] = useState(
+    PREDEFINED_CITIES.filter(c => c.isDepot || Math.random() < 0.3).slice(0, 3)
+  );
+  const [allCities, setAllCities] = useState(PREDEFINED_CITIES);
+  const [numVehicles, setNumVehicles] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const [mapInitialized, setMapInitialized] = useState(false);
+  const [activeMenu, setActiveMenu] = useState(null);
+  const [newCity, setNewCity] = useState({ name: '', lat: '', lon: '' });
   const mapContainer = useRef(null);
   const map = useRef(null);
-  const [mapInitialized, setMapInitialized] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [numVehicles, setNumVehicles] = useState(1);
 
-  // Coordenadas de Colombia
-  const originalCoordinates = [
-    [4.5709, -74.2973],  // Depósito (Bogotá centro)
-    [6.2318, -75.5636],  // Medellín
-    [4.639, -74.0817],   // Bogotá (otro punto)
-    [4.4353, -75.2110]   // Ibagué
-  ];
-
-  // Función para calcular distancia
-  const calculateDistance = (coord1, coord2) => {
-    const [lat1, lon1] = coord1;
-    const [lat2, lon2] = coord2;
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
-  };
-
+  // Funciones básicas
   const clearRoute = () => {
     setRoute(null);
     removeRouteLayers();
@@ -42,324 +40,290 @@ function App() {
 
   const removeRouteLayers = () => {
     try {
-      // Limpiar todas las capas de vehículos
-      const vehicleIds = Array.from({length: numVehicles}, (_, i) => i);
-      vehicleIds.forEach(vehicleId => {
-        const sourceId = `route-${vehicleId}`;
-        const layerIds = [
-          `route-line-${vehicleId}`,
-          `route-points-${vehicleId}`,
-          `route-labels-${vehicleId}`
-        ];
-        
-        layerIds.forEach(layerId => {
-          if (map.current.getLayer(layerId)) map.current.removeLayer(layerId);
-        });
-        
-        if (map.current.getSource(sourceId)) map.current.removeSource(sourceId);
+      const layers = ['route-line', 'route-points', 'route-labels'];
+      layers.forEach(layer => {
+        if (map.current?.getLayer(layer)) map.current.removeLayer(layer);
       });
+      if (map.current?.getSource('route')) map.current.removeSource('route');
     } catch (error) {
-      console.log("Error limpiando capas:", error.message);
+      console.error("Error limpiando capas:", error);
     }
   };
 
-  const addRouteTooltips = () => {
-    if (!map.current || !route) return;
-
-    // Tooltip para la línea de ruta
-    map.current.on('mouseenter', 'route-line', () => {
-      map.current.getCanvas().style.cursor = 'pointer';
-    });
-
-    map.current.on('mouseleave', 'route-line', () => {
-      map.current.getCanvas().style.cursor = '';
-    });
-
-    // Tooltip para puntos
-    map.current.on('click', 'route-points', (e) => {
-      const coordinates = e.features[0].geometry.coordinates.slice();
-      const description = e.features[0].properties.name;
-      
-      // Solo calcular distancia si es un punto intermedio
-      let distanceInfo = '';
-      if (description.includes('Punto')) {
-        const pointIndex = parseInt(description.split(' ')[1]);
-        const currentRoute = route.routes?.find(r => r.route.includes(pointIndex)) || route;
-        const currentRouteIndex = currentRoute.route.indexOf(pointIndex);
-        
-        if (currentRouteIndex < currentRoute.route.length - 1) {
-          const nextPointIndex = currentRoute.route[currentRouteIndex + 1];
-          const [nextLat, nextLon] = originalCoordinates[nextPointIndex];
-          const dist = calculateDistance(
-            [coordinates[1], coordinates[0]],
-            [nextLat, nextLon]
-          );
-          distanceInfo = `<p>Distancia al siguiente punto: ${dist.toFixed(2)} km</p>`;
-        }
-      }
-
-      new maplibregl.Popup()
-        .setLngLat(coordinates)
-        .setHTML(`
-          <div class="route-popup">
-            <h4>${description}</h4>
-            <p>Coordenadas: ${coordinates[1].toFixed(4)}, ${coordinates[0].toFixed(4)}</p>
-            ${description.includes('Punto') ? 
-              `<p>Secuencia: ${route.route.indexOf(parseInt(description.split(' ')[1])) + 1}</p>` : ''}
-            ${distanceInfo}
-            <div class="popup-footer">
-              <button class="close-popup" onclick="this.closest('.mapboxgl-popup').remove()">Cerrar</button>
-            </div>
-          </div>
-        `)
-        .addTo(map.current);
-    });
-  };
-
-  // Inicialización del mapa
-  useEffect(() => {
-    if (!mapContainer.current) return;
-
-    const mapTilerKey = 'wNHJXUkCv4sp6GAPuvsq';
-    try {
-      map.current = new maplibregl.Map({
-        container: mapContainer.current,
-        style: `https://api.maptiler.com/maps/streets/style.json?key=${mapTilerKey}`,
-        center: [-74.2973, 4.5709],
-        zoom: 4
-      });
-
-      map.current.on('load', () => {
-        console.log('Mapa cargado correctamente');
-        setMapInitialized(true);
-        
-        // Añadir marcadores iniciales
-        originalCoordinates.forEach(([lat, lon], i) => {
-          const markerElement = document.createElement('div');
-          markerElement.className = 'custom-marker';
-          const markerText = i === 0 ? 'A' : `P${i}`;
-
-          markerElement.innerHTML = `
-            <div class="marker-container">
-              <div class="marker-pin" style="background: ${i === 0 ? '#FFA500' : '#3FB1CE'}"></div>
-              <div class="marker-label">${markerText}</div>
-            </div>
-          `;
-
-          new maplibregl.Marker({element: markerElement})
-            .setLngLat([lon, lat])
-            .setPopup(new maplibregl.Popup({ 
-              closeButton: true,
-              className: 'custom-popup',
-              maxWidth: '300px'
-            }).setHTML(`
-              <div class="popup-content">
-                <strong>${i === 0 ? 'Centro de Acopio' : `Punto ${i}`}</strong>
-                <div>Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(4)}</div>
+  // Menú de opciones
+  const renderMenu = () => {
+    switch (activeMenu) {
+      case 'select-cities':
+        return (
+          <div className="menu-container">
+            <h3>Seleccionar Ciudades</h3>
+            {allCities.map((city, i) => (
+              <div key={i} className="city-item">
+                <input
+                  type="checkbox"
+                  checked={selectedCities.some(c => c.name === city.name)}
+                  onChange={() => toggleCitySelection(city)}
+                />
+                <span>{city.name}</span>
               </div>
-            `))
-            .addTo(map.current);
-        });
-      });
+            ))}
+            <button onClick={() => setActiveMenu(null)}>Aplicar</button>
+          </div>
+        );
+      case 'add-city':
+        return (
+          <div className="menu-container">
+            <h3>Añadir Ciudad</h3>
+            <input
+              type="text"
+              placeholder="Nombre"
+              value={newCity.name}
+              onChange={(e) => setNewCity({...newCity, name: e.target.value})}
+            />
+            <input
+              type="number"
+              placeholder="Latitud"
+              step="0.0001"
+              value={newCity.lat}
+              onChange={(e) => setNewCity({...newCity, lat: e.target.value})}
+            />
+            <input
+              type="number"
+              placeholder="Longitud"
+              step="0.0001"
+              value={newCity.lon}
+              onChange={(e) => setNewCity({...newCity, lon: e.target.value})}
+            />
+            <button onClick={handleAddCity}>Añadir</button>
+            <button onClick={() => setActiveMenu(null)}>Cancelar</button>
+          </div>
+        );
+      case 'remove-city':
+        return (
+          <div className="menu-container">
+            <h3>Eliminar Ciudades</h3>
+            {selectedCities.filter(c => !c.isDepot).map((city, i) => (
+              <div key={i} className="city-item">
+                <button onClick={() => removeCity(city)}>Eliminar</button>
+                <span>{city.name}</span>
+              </div>
+            ))}
+            <button onClick={() => setActiveMenu(null)}>Listo</button>
+          </div>
+        );
+      case 'vehicles':
+        return (
+          <div className="menu-container">
+            <h3>Seleccionar Vehículos</h3>
+            {[1, 2, 3].map(num => (
+              <div key={num} className="vehicle-option">
+                <input
+                  type="radio"
+                  id={`vehicle-${num}`}
+                  name="vehicles"
+                  checked={numVehicles === num}
+                  onChange={() => setNumVehicles(num)}
+                />
+                <label htmlFor={`vehicle-${num}`}>{num} Vehículo(s)</label>
+              </div>
+            ))}
+            <button onClick={() => setActiveMenu(null)}>Aplicar</button>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
 
-      map.current.on('error', (e) => {
-        console.error('Error en el mapa:', e.error);
-      });
+  // Funciones de manejo de ciudades
+  const toggleCitySelection = (city) => {
+    if (city.isDepot) return;
+    setSelectedCities(prev => 
+      prev.some(c => c.name === city.name)
+        ? prev.filter(c => c.name !== city.name)
+        : [...prev, city]
+    );
+  };
 
-      map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
-      map.current.addControl(
-        new maplibregl.ScaleControl({
-          maxWidth: 200,
-          unit: 'metric'
-        }),
-        'bottom-left'
-      );
-
-      if (map.current) {
-        import('./mapPopupOverrides.css');
-      }
-
-    } catch (error) {
-      console.error('Error al crear el mapa:', error);
+  const handleAddCity = () => {
+    if (!newCity.name || !newCity.lat || !newCity.lon) return;
+    const lat = parseFloat(newCity.lat);
+    const lon = parseFloat(newCity.lon);
+    
+    if (isNaN(lat) || isNaN(lon)) {
+      alert("Coordenadas inválidas");
+      return;
     }
 
-    return () => {
-      if (map.current) map.current.remove();
+    const newCityObj = {
+      name: newCity.name,
+      coords: [lat, lon]
     };
-  }, []);
 
-  // Dibujar rutas para múltiples vehículos
-  useEffect(() => {
-    if (!mapInitialized || !route || !map.current) return;
+    setAllCities([...allCities, newCityObj]);
+    setSelectedCities([...selectedCities, newCityObj]);
+    setNewCity({ name: '', lat: '', lon: '' });
+    setActiveMenu(null);
+  };
 
-    const colors = ['#4CAF50', '#2196F3', '#FF5722', '#9C27B0', '#FFC107'];
-    
-    // Manejar tanto respuesta antigua como nueva
-    const routesToDraw = route.routes || [{
-      vehicle_id: 0,
-      route: route.route || [],
-      distance: route.distance || 0
-    }];
+  const removeCity = (city) => {
+    setSelectedCities(prev => prev.filter(c => c.name !== city.name));
+  };
 
-    routesToDraw.forEach((vehicleRoute, idx) => {
-      const color = colors[idx % colors.length];
-      
-      // 1. Convertir índices a coordenadas
-      const routePoints = vehicleRoute.route.map(index => {
-        const [lat, lon] = originalCoordinates[index];
-        return [lon, lat];
-      });
-
-      // 2. Añadir depósito al inicio y final
-      const [depotLat, depoLon] = originalCoordinates[0];
-      const fullRoute = [
-        [depoLon, depotLat],
-        ...routePoints,
-        [depoLon, depotLat]
-      ];
-
-      // 3. Crear GeoJSON
-      const geoJson = {
-        type: "FeatureCollection",
-        features: [
-          {
-            type: "Feature",
-            geometry: {
-              type: "LineString",
-              coordinates: fullRoute
-            },
-            properties: {
-              vehicle_id: vehicleRoute.vehicle_id || idx
-            }
-          },
-          ...fullRoute.map((coord, i) => ({
-            type: "Feature",
-            geometry: {
-              type: "Point",
-              coordinates: coord
-            },
-            properties: {
-              name: i === 0 ? "Depósito (Inicio)" : 
-                   i === fullRoute.length - 1 ? "Depósito (Fin)" :
-                   `Punto ${vehicleRoute.route[i-1]}`
-            }
-          }))
-        ]
-      };
-
-      // 4. Añadir al mapa
-      const sourceId = `route-${vehicleRoute.vehicle_id || idx}`;
-      map.current.addSource(sourceId, {
-        type: 'geojson',
-        data: geoJson
-      });
-
-      // Línea de ruta
-      map.current.addLayer({
-        id: `route-line-${vehicleRoute.vehicle_id || idx}`,
-        type: 'line',
-        source: sourceId,
-        filter: ['==', ['geometry-type'], 'LineString'],
-        paint: {
-          'line-color': color,
-          'line-width': 4,
-          'line-opacity': 0
-        }
-      });
-
-      // Puntos de ruta
-      map.current.addLayer({
-        id: `route-points-${vehicleRoute.vehicle_id || idx}`,
-        type: 'circle',
-        source: sourceId,
-        filter: ['==', ['geometry-type'], 'Point'],
-        paint: {
-          'circle-radius': [
-            'case',
-            ['any',
-              ['==', ['get', 'name'], 'Depósito (Inicio)'],
-              ['==', ['get', 'name'], 'Depósito (Fin)']
-            ], 8, 6
-          ],
-          'circle-color': [
-            'case',
-            ['==', ['get', 'name'], 'Depósito (Inicio)'], '#FF5722',
-            ['==', ['get', 'name'], 'Depósito (Fin)'], '#FF5722',
-            color
-          ],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#fff',
-          'circle-opacity': 0
-        }
-      });
-
-      // Animación
-      setTimeout(() => {
-        map.current.setPaintProperty(
-          `route-line-${vehicleRoute.vehicle_id || idx}`,
-          'line-opacity',
-          0.8,
-          { duration: 1000 }
-        );
-        map.current.setPaintProperty(
-          `route-points-${vehicleRoute.vehicle_id || idx}`,
-          'circle-opacity',
-          1,
-          { duration: 800 }
-        );
-      }, idx * 300);
-    });
-
-    // Ajustar vista
-    const bounds = new maplibregl.LngLatBounds();
-    routesToDraw.forEach(vehicleRoute => {
-      vehicleRoute.route.forEach(index => {
-        const [lat, lon] = originalCoordinates[index];
-        bounds.extend([lon, lat]);
-      });
-    });
-    map.current.fitBounds(bounds, { padding: 50, maxZoom: 12 });
-
-    // Añadir tooltips
-    addRouteTooltips();
-
-  }, [route, mapInitialized]);
-
+  // Optimización de ruta
   const optimizeRoute = async () => {
+    if (selectedCities.length < 3) {
+      alert("Seleccione al menos 3 ciudades además del depósito");
+      return;
+    }
+
     setIsLoading(true);
     clearRoute();
-    
-    try {
-          // Redondear coordenadas antes de enviar
-      const roundedCoords = originalCoordinates.map(coord => [
-        parseFloat(coord[0].toFixed(6)),
-       parseFloat(coord[1].toFixed(6))
-      ]);
 
+    try {
+      // Preparar datos para enviar
+      const requestData = {
+        points: selectedCities.map(city => city.coords),
+        num_vehicles: numVehicles
+      };
+  
+      console.log("Enviando datos:", requestData); // Para depuración
+  
       const response = await fetch('http://localhost:8000/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          points: roundedCoords,
-          num_vehicles: numVehicles
-        })
+        body: JSON.stringify(requestData)
       });
-
+  
       if (!response.ok) {
         const errorData = await response.json();
+        console.error("Error del backend:", errorData); // Log detallado
         throw new Error(errorData.detail || `Error HTTP: ${response.status}`);
       }
       
       const data = await response.json();
-      console.log("Respuesta del backend:", data);
+      console.log("Respuesta recibida:", data); // Para depuración
       setRoute(data);
       
     } catch (error) {
-      console.error("Error:", error);
-      alert(`Error: ${error.message}`);
+      console.error("Error completo:", error);
+      alert(`Error al calcular ruta: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Inicialización del mapa y efectos
+  useEffect(() => {
+    if (!mapContainer.current) return;
+
+    const mapTilerKey = 'wNHJXUkCv4sp6GAPuvsq';
+    map.current = new maplibregl.Map({
+      container: mapContainer.current,
+      style: `https://api.maptiler.com/maps/streets/style.json?key=${mapTilerKey}`,
+      center: [-74.2973, 4.5709],
+      zoom: 4
+    });
+
+    map.current.on('load', () => {
+      setMapInitialized(true);
+      updateMapMarkers();
+    });
+
+    return () => map.current?.remove();
+  }, []);
+
+  useEffect(() => {
+    if (mapInitialized) {
+      updateMapMarkers();
+    }
+  }, [selectedCities, mapInitialized]);
+
+  useEffect(() => {
+    if (mapInitialized && route) {
+      drawRoute();
+    }
+  }, [route, mapInitialized]);
+
+  // Funciones de mapa
+  const updateMapMarkers = () => {
+    if (!map.current) return;
+
+    // Limpiar marcadores existentes
+    const markers = document.querySelectorAll('.mapboxgl-marker');
+    markers.forEach(marker => marker.remove());
+
+    // Añadir nuevos marcadores
+    selectedCities.forEach((city, i) => {
+      const markerElement = document.createElement('div');
+      markerElement.className = 'custom-marker';
+      markerElement.innerHTML = `
+        <div class="marker-container">
+          <div class="marker-pin" style="background: ${city.isDepot ? '#FFA500' : '#3FB1CE'}"></div>
+          <div class="marker-label">${city.isDepot ? 'A' : `P${i}`}</div>
+        </div>
+      `;
+
+      new maplibregl.Marker({ element: markerElement })
+        .setLngLat([city.coords[1], city.coords[0]])
+        .setPopup(new maplibregl.Popup().setHTML(`
+          <div class="popup-content">
+            <strong>${city.name}</strong>
+            <div>Lat: ${city.coords[0].toFixed(4)}, Lon: ${city.coords[1].toFixed(4)}</div>
+          </div>
+        `))
+        .addTo(map.current);
+    });
+  };
+
+  const drawRoute = () => {
+    if (!map.current || !route) return;
+    removeRouteLayers();
+
+    const colors = ['#4CAF50', '#2196F3', '#FF5722'];
+    const routesToDraw = route.routes || [route];
+
+    routesToDraw.forEach((vehicleRoute, idx) => {
+      const color = colors[idx % colors.length];
+      const routeCoords = vehicleRoute.route.map(index => {
+        const city = selectedCities[index];
+        return [city.coords[1], city.coords[0]];
+      });
+
+      // Añadir depósito al inicio y final
+      const depot = selectedCities.find(c => c.isDepot);
+      const fullRoute = [
+        [depot.coords[1], depot.coords[0]],
+        ...routeCoords,
+        [depot.coords[1], depot.coords[0]]
+      ];
+
+      // Añadir fuente y capas
+      map.current.addSource(`route-${idx}`, {
+        type: 'geojson',
+        data: {
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: fullRoute
+            }
+          }]
+        }
+      });
+
+      map.current.addLayer({
+        id: `route-line-${idx}`,
+        type: 'line',
+        source: `route-${idx}`,
+        paint: {
+          'line-color': color,
+          'line-width': 4,
+          'line-opacity': 0.8
+        }
+      });
+    });
   };
 
   return (
@@ -367,23 +331,17 @@ function App() {
       <h1>Optimizador IA de Rutas (VRP)</h1>
       
       <div className="controls">
-        <select 
-          value={numVehicles} 
-          onChange={(e) => setNumVehicles(parseInt(e.target.value))}
-        >
-          <option value={1}>1 Vehículo</option>
-          <option value={2}>2 Vehículos</option>
-          <option value={3}>3 Vehículos</option>
-        </select>
-
+        <button onClick={() => setActiveMenu('select-cities')}>Elegir Ciudades</button>
+        <button onClick={() => setActiveMenu('add-city')}>Añadir Ciudad</button>
+        <button onClick={() => setActiveMenu('remove-city')}>Borrar Ciudades</button>
+        <button onClick={() => setActiveMenu('vehicles')}>Vehículos: {numVehicles}</button>
         <button onClick={optimizeRoute} disabled={isLoading}>
           {isLoading ? 'Calculando...' : 'Calcular Ruta'}
         </button>
-        
-        <button onClick={clearRoute} className="secondary-btn">
-          Limpiar Ruta
-        </button>
+        <button onClick={clearRoute}>Borrar Ruta</button>
       </div>
+
+      {renderMenu()}
 
       <div 
         ref={mapContainer} 
@@ -393,28 +351,21 @@ function App() {
 
       {route && (
         <div className="route-info">
-          <h3>Ruta optimizada</h3>
-          <div className="route-summary">
-            <div>
-              <span className="label">Vehículos:</span>
-              <span className="value">{route.routes?.length || 1}</span>
-            </div>
-            <div>
-              <span className="label">Distancia total:</span>
-              <span className="value">
-              {(route.total_distance ? route.total_distance : route.distance / 1000).toFixed(2)} km
-              </span>
-            </div>
+          <h3>Ruta Optimizada</h3>
+          <div className="summary">
+            <p><strong>Total ciudades:</strong> {selectedCities.length - 1}</p>
+            <p><strong>Vehículos utilizados:</strong> {route.routes?.length || 1}</p>
+            <p><strong>Distancia total:</strong> {(route.total_distance || route.distance / 1000).toFixed(2)} km</p>
           </div>
           
           {(route.routes || [route]).map((vehicleRoute, i) => (
             <div key={i} className="vehicle-route">
               <h4>Vehículo {i + 1}</h4>
-              <p>
-                <strong>Secuencia:</strong> Depósito → 
-                {vehicleRoute.route.map(index => ` Punto ${index}`).join(" → ")} → Depósito
-              </p>
+              <p><strong>Recorrido:</strong> Depósito → {
+                vehicleRoute.route.map(index => selectedCities[index].name).join(" → ")
+              } → Depósito</p>
               <p><strong>Distancia:</strong> {(vehicleRoute.distance / 1000).toFixed(2)} km</p>
+              <p><strong>Ciudades visitadas:</strong> {vehicleRoute.route.length}</p>
             </div>
           ))}
         </div>
