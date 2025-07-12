@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './App.css';
+import './mapPopupOverrides.css';
 
 function App() {
   const [route, setRoute] = useState(null);
@@ -12,37 +13,119 @@ function App() {
   const [numVehicles, setNumVehicles] = useState(1);
 
   // Coordenadas de Colombia
-  // (el primer punto es el depósito/centro de acopio)
-const originalCoordinates = [
-  [4.5709, -74.2973],  // Depósito (Bogotá centro)
-  [6.2318, -75.5636],  // Medellín
-  [4.639, -74.0817],   // Bogotá (otro punto)
-  [4.4353, -75.2110]   // Ibagué
-];
+  const originalCoordinates = [
+    [4.5709, -74.2973],  // Depósito (Bogotá centro)
+    [6.2318, -75.5636],  // Medellín
+    [4.639, -74.0817],   // Bogotá (otro punto)
+    [4.4353, -75.2110]   // Ibagué
+  ];
+
+  // Función para calcular distancia
+  const calculateDistance = (coord1, coord2) => {
+    const [lat1, lon1] = coord1;
+    const [lat2, lon2] = coord2;
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
 
   const clearRoute = () => {
     setRoute(null);
-    try {
-    if (map.current?.getSource('route')) {
-      map.current.removeLayer('route');
-      map.current.removeSource('route');
-    }
-  } catch (error) {
-    console.log("Error al limpiar ruta (puede ignorarse):", error.message);
-  }
+    removeRouteLayers();
   };
 
-  // 1. Inicializar el mapa
+  const removeRouteLayers = () => {
+    try {
+      // Limpiar todas las capas de vehículos
+      const vehicleIds = Array.from({length: numVehicles}, (_, i) => i);
+      vehicleIds.forEach(vehicleId => {
+        const sourceId = `route-${vehicleId}`;
+        const layerIds = [
+          `route-line-${vehicleId}`,
+          `route-points-${vehicleId}`,
+          `route-labels-${vehicleId}`
+        ];
+        
+        layerIds.forEach(layerId => {
+          if (map.current.getLayer(layerId)) map.current.removeLayer(layerId);
+        });
+        
+        if (map.current.getSource(sourceId)) map.current.removeSource(sourceId);
+      });
+    } catch (error) {
+      console.log("Error limpiando capas:", error.message);
+    }
+  };
+
+  const addRouteTooltips = () => {
+    if (!map.current || !route) return;
+
+    // Tooltip para la línea de ruta
+    map.current.on('mouseenter', 'route-line', () => {
+      map.current.getCanvas().style.cursor = 'pointer';
+    });
+
+    map.current.on('mouseleave', 'route-line', () => {
+      map.current.getCanvas().style.cursor = '';
+    });
+
+    // Tooltip para puntos
+    map.current.on('click', 'route-points', (e) => {
+      const coordinates = e.features[0].geometry.coordinates.slice();
+      const description = e.features[0].properties.name;
+      
+      // Solo calcular distancia si es un punto intermedio
+      let distanceInfo = '';
+      if (description.includes('Punto')) {
+        const pointIndex = parseInt(description.split(' ')[1]);
+        const currentRoute = route.routes?.find(r => r.route.includes(pointIndex)) || route;
+        const currentRouteIndex = currentRoute.route.indexOf(pointIndex);
+        
+        if (currentRouteIndex < currentRoute.route.length - 1) {
+          const nextPointIndex = currentRoute.route[currentRouteIndex + 1];
+          const [nextLat, nextLon] = originalCoordinates[nextPointIndex];
+          const dist = calculateDistance(
+            [coordinates[1], coordinates[0]],
+            [nextLat, nextLon]
+          );
+          distanceInfo = `<p>Distancia al siguiente punto: ${dist.toFixed(2)} km</p>`;
+        }
+      }
+
+      new maplibregl.Popup()
+        .setLngLat(coordinates)
+        .setHTML(`
+          <div class="route-popup">
+            <h4>${description}</h4>
+            <p>Coordenadas: ${coordinates[1].toFixed(4)}, ${coordinates[0].toFixed(4)}</p>
+            ${description.includes('Punto') ? 
+              `<p>Secuencia: ${route.route.indexOf(parseInt(description.split(' ')[1])) + 1}</p>` : ''}
+            ${distanceInfo}
+            <div class="popup-footer">
+              <button class="close-popup" onclick="this.closest('.mapboxgl-popup').remove()">Cerrar</button>
+            </div>
+          </div>
+        `)
+        .addTo(map.current);
+    });
+  };
+
+  // Inicialización del mapa
   useEffect(() => {
     if (!mapContainer.current) return;
 
-    const mapTilerKey = 'wNHJXUkCv4sp6GAPuvsq'; // API Key
-
+    const mapTilerKey = 'wNHJXUkCv4sp6GAPuvsq';
     try {
       map.current = new maplibregl.Map({
         container: mapContainer.current,
         style: `https://api.maptiler.com/maps/streets/style.json?key=${mapTilerKey}`,
-        center: [-74.2973, 4.5709], // Centro de Colombia
+        center: [-74.2973, 4.5709],
         zoom: 4
       });
 
@@ -52,24 +135,29 @@ const originalCoordinates = [
         
         // Añadir marcadores iniciales
         originalCoordinates.forEach(([lat, lon], i) => {
-        // Crear elemento HTML personalizado para el marcador
-        const markerElement = document.createElement('div');
-        markerElement.className = 'custom-marker';
-  
-        // Texto diferente para depósito vs puntos
-        const markerText = i === 0 ? 'A' : `P${i}`; // "A" para acopio, "P1", "P2", etc.
-  
-        markerElement.innerHTML = `
-          <div class="marker-container">
-          <div class="marker-circle" style="background: ${i === 0 ? '#FFA500' : '#3FB1CE'}">
-          ${markerText}
-          </div>
-          </div>
+          const markerElement = document.createElement('div');
+          markerElement.className = 'custom-marker';
+          const markerText = i === 0 ? 'A' : `P${i}`;
+
+          markerElement.innerHTML = `
+            <div class="marker-container">
+              <div class="marker-pin" style="background: ${i === 0 ? '#FFA500' : '#3FB1CE'}"></div>
+              <div class="marker-label">${markerText}</div>
+            </div>
           `;
 
           new maplibregl.Marker({element: markerElement})
             .setLngLat([lon, lat])
-            .setPopup(new maplibregl.Popup().setText(i === 0 ? 'Centro de acopio' : `Punto ${i}`))
+            .setPopup(new maplibregl.Popup({ 
+              closeButton: true,
+              className: 'custom-popup',
+              maxWidth: '300px'
+            }).setHTML(`
+              <div class="popup-content">
+                <strong>${i === 0 ? 'Centro de Acopio' : `Punto ${i}`}</strong>
+                <div>Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(4)}</div>
+              </div>
+            `))
             .addTo(map.current);
         });
       });
@@ -77,6 +165,19 @@ const originalCoordinates = [
       map.current.on('error', (e) => {
         console.error('Error en el mapa:', e.error);
       });
+
+      map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
+      map.current.addControl(
+        new maplibregl.ScaleControl({
+          maxWidth: 200,
+          unit: 'metric'
+        }),
+        'bottom-left'
+      );
+
+      if (map.current) {
+        import('./mapPopupOverrides.css');
+      }
 
     } catch (error) {
       console.error('Error al crear el mapa:', error);
@@ -87,109 +188,170 @@ const originalCoordinates = [
     };
   }, []);
 
-  // 2. Dibujar ruta cuando hay datos
+  // Dibujar rutas para múltiples vehículos
   useEffect(() => {
-    if (!mapInitialized || !route || !map.current) {
-      console.log('Condiciones no cumplidas:', {
-        initialized: mapInitialized,
-        route: !!route,
-        map: !!map.current
-      });
-      return;
-    }
+    if (!mapInitialized || !route || !map.current) return;
 
-    try {
-      // 1. Obtener coordenadas completas [lon, lat]
-      const getCoords = (index) => {
+    const colors = ['#4CAF50', '#2196F3', '#FF5722', '#9C27B0', '#FFC107'];
+    
+    // Manejar tanto respuesta antigua como nueva
+    const routesToDraw = route.routes || [{
+      vehicle_id: 0,
+      route: route.route || [],
+      distance: route.distance || 0
+    }];
+
+    routesToDraw.forEach((vehicleRoute, idx) => {
+      const color = colors[idx % colors.length];
+      
+      // 1. Convertir índices a coordenadas
+      const routePoints = vehicleRoute.route.map(index => {
         const [lat, lon] = originalCoordinates[index];
         return [lon, lat];
-      };
+      });
 
-      // 2. Añadir el depósito al inicio y final de la ruta
-      const routeCoords = route.route.map(index => getCoords(index));
+      // 2. Añadir depósito al inicio y final
+      const [depotLat, depoLon] = originalCoordinates[0];
       const fullRoute = [
-        getCoords(0), // Depósito inicial
-        ...routeCoords,
-        getCoords(0)  // Depósito final
+        [depoLon, depotLat],
+        ...routePoints,
+        [depoLon, depotLat]
       ];
 
-      // Limpiar capa anterior
-      if (map.current.getSource('route')) {
-        map.current.removeLayer('route');
-        map.current.removeSource('route');
-      }
+      // 3. Crear GeoJSON
+      const geoJson = {
+        type: "FeatureCollection",
+        features: [
+          {
+            type: "Feature",
+            geometry: {
+              type: "LineString",
+              coordinates: fullRoute
+            },
+            properties: {
+              vehicle_id: vehicleRoute.vehicle_id || idx
+            }
+          },
+          ...fullRoute.map((coord, i) => ({
+            type: "Feature",
+            geometry: {
+              type: "Point",
+              coordinates: coord
+            },
+            properties: {
+              name: i === 0 ? "Depósito (Inicio)" : 
+                   i === fullRoute.length - 1 ? "Depósito (Fin)" :
+                   `Punto ${vehicleRoute.route[i-1]}`
+            }
+          }))
+        ]
+      };
 
-      // Añadir nueva ruta
-      map.current.addSource('route', {
+      // 4. Añadir al mapa
+      const sourceId = `route-${vehicleRoute.vehicle_id || idx}`;
+      map.current.addSource(sourceId, {
         type: 'geojson',
-        data: {
-          type: 'Feature',
-          geometry: {
-            type: 'LineString',
-            coordinates: fullRoute // Usar fullRoute para incluir el depósito, sino usar routeCoords
-          }
-        }
+        data: geoJson
       });
-      // Añadir capa de ruta
+
+      // Línea de ruta
       map.current.addLayer({
-        id: 'route',
+        id: `route-line-${vehicleRoute.vehicle_id || idx}`,
         type: 'line',
-        source: 'route',
+        source: sourceId,
+        filter: ['==', ['geometry-type'], 'LineString'],
         paint: {
-          'line-color': '#FF0000',
+          'line-color': color,
           'line-width': 4,
-          'line-dasharray': [2, 2] // Opcional: estilo de línea punteada
+          'line-opacity': 0
         }
       });
-      // Añadir marcadores (incluyendo depósito con estilo diferente)
-      originalCoordinates.forEach(([lat, lon], i) => {
-        const marker = new maplibregl.Marker({
-          color: i === 0 ? '#FFA500' : '#3FB1CE'  // Naranja para depósito
-      })  
-          .setLngLat([lon, lat])
-          .setPopup(new maplibregl.Popup().setText(
-            i === 0 ? 'Centro de acopio' : `Punto ${i}`
-        ))
-          .addTo(map.current);
-      });
 
-      /*
+      // Puntos de ruta
       map.current.addLayer({
-        id: 'route',
-        type: 'line',
-        source: 'route',
+        id: `route-points-${vehicleRoute.vehicle_id || idx}`,
+        type: 'circle',
+        source: sourceId,
+        filter: ['==', ['geometry-type'], 'Point'],
         paint: {
-          'line-color': '#FF0000',
-          'line-width': 4
+          'circle-radius': [
+            'case',
+            ['any',
+              ['==', ['get', 'name'], 'Depósito (Inicio)'],
+              ['==', ['get', 'name'], 'Depósito (Fin)']
+            ], 8, 6
+          ],
+          'circle-color': [
+            'case',
+            ['==', ['get', 'name'], 'Depósito (Inicio)'], '#FF5722',
+            ['==', ['get', 'name'], 'Depósito (Fin)'], '#FF5722',
+            color
+          ],
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#fff',
+          'circle-opacity': 0
         }
-      });*/
+      });
 
+      // Animación
+      setTimeout(() => {
+        map.current.setPaintProperty(
+          `route-line-${vehicleRoute.vehicle_id || idx}`,
+          'line-opacity',
+          0.8,
+          { duration: 1000 }
+        );
+        map.current.setPaintProperty(
+          `route-points-${vehicleRoute.vehicle_id || idx}`,
+          'circle-opacity',
+          1,
+          { duration: 800 }
+        );
+      }, idx * 300);
+    });
 
-      // Ajustar vista
-      const bounds = new maplibregl.LngLatBounds();
-      fullRoute.forEach(coord => bounds.extend(coord));
-      map.current.fitBounds(bounds, { padding: 50 });
+    // Ajustar vista
+    const bounds = new maplibregl.LngLatBounds();
+    routesToDraw.forEach(vehicleRoute => {
+      vehicleRoute.route.forEach(index => {
+        const [lat, lon] = originalCoordinates[index];
+        bounds.extend([lon, lat]);
+      });
+    });
+    map.current.fitBounds(bounds, { padding: 50, maxZoom: 12 });
 
-    } catch (error) {
-      console.error('Error al dibujar ruta:', error);
-    }
+    // Añadir tooltips
+    addRouteTooltips();
+
   }, [route, mapInitialized]);
 
   const optimizeRoute = async () => {
     setIsLoading(true);
+    clearRoute();
+    
     try {
+          // Redondear coordenadas antes de enviar
+      const roundedCoords = originalCoordinates.map(coord => [
+        parseFloat(coord[0].toFixed(6)),
+       parseFloat(coord[1].toFixed(6))
+      ]);
+
       const response = await fetch('http://localhost:8000/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          points: originalCoordinates,
+          points: roundedCoords,
           num_vehicles: numVehicles
         })
       });
 
-      if (!response.ok) throw new Error(`Error HTTP: ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `Error HTTP: ${response.status}`);
+      }
       
       const data = await response.json();
+      console.log("Respuesta del backend:", data);
       setRoute(data);
       
     } catch (error) {
@@ -231,27 +393,30 @@ const originalCoordinates = [
 
       {route && (
         <div className="route-info">
-          <h3>Ruta optimizada:</h3>
-          <p><strong>Secuencia:</strong> Depósito → {route.route.map(i => `Punto ${i}`).join(" → ")} → Depósito</p>
-          <p><strong>Distancia total:</strong> {(route.distance / 1000).toFixed(2)} km</p>
-        
-          <div className="route-details">
-            <h4>Coordenadas:</h4>
-              <ul>
-                <li><strong>Depósito:</strong> {originalCoordinates[0][0]}, {originalCoordinates[0][1]}</li>
-                {route.route.map((index, i) => (
-                <li key={i}>
-                <strong>Punto {index}:</strong> {originalCoordinates[index][0]}, {originalCoordinates[index][1]}
-                </li>
-                ))}
-              </ul>
+          <h3>Ruta optimizada</h3>
+          <div className="route-summary">
+            <div>
+              <span className="label">Vehículos:</span>
+              <span className="value">{route.routes?.length || 1}</span>
+            </div>
+            <div>
+              <span className="label">Distancia total:</span>
+              <span className="value">
+              {(route.total_distance ? route.total_distance : route.distance / 1000).toFixed(2)} km
+              </span>
+            </div>
           </div>
-        </div>
-      )}
-
-      {!mapInitialized && (
-        <div className="map-loading">
-          Cargando mapa... (Si no aparece, revisa la consola)
+          
+          {(route.routes || [route]).map((vehicleRoute, i) => (
+            <div key={i} className="vehicle-route">
+              <h4>Vehículo {i + 1}</h4>
+              <p>
+                <strong>Secuencia:</strong> Depósito → 
+                {vehicleRoute.route.map(index => ` Punto ${index}`).join(" → ")} → Depósito
+              </p>
+              <p><strong>Distancia:</strong> {(vehicleRoute.distance / 1000).toFixed(2)} km</p>
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -1,0 +1,18 @@
+/* mapPopupOverrides.css */
+@layer overrides {
+    .mapboxgl-popup-content, 
+    .mapboxgl-popup-content * {
+      color: #333 !important;
+      background-color: #fff !important;
+      font-family: Arial, sans-serif !important;
+    }
+    
+    .mapboxgl-popup-content {
+      all: unset !important;
+      background-color: #fff !important;
+      padding: 12px !important;
+      border-radius: 4px !important;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+      color: #333 !important;
+    }
+  }
