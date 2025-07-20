@@ -6,16 +6,19 @@ import './mapPopupOverrides.css';
 
 // Listado predefinido de ciudades (7 Colombia + 3 EEUU)
 const PREDEFINED_CITIES = [
-  { name: "Bogotá (Centro)", coords: [4.5709, -74.2973], isDepot: true },
-  { name: "Medellín", coords: [6.2318, -75.5636] },
-  { name: "Cali", coords: [3.4516, -76.5320] },
-  { name: "Barranquilla", coords: [10.9639, -74.7964] },
-  { name: "Cartagena", coords: [10.3910, -75.4794] },
-  { name: "Bucaramanga", coords: [7.1193, -73.1227] },
-  { name: "Pereira", coords: [4.8143, -75.6946] },
-  { name: "New York", coords: [40.7128, -74.0060] },
-  { name: "Miami", coords: [25.7617, -80.1918] },
-  { name: "Los Angeles", coords: [34.0522, -118.2437] }
+  { name: "Bogotá (Centro)", coords: [4.5709, -74.2973], isDepot: true },//Centro de Acopio y capital
+  { name: "Medellín", coords: [6.2318, -75.5636] },//Capital del Eje Cafetero, ciudad principal
+  { name: "Cali", coords: [3.4516, -76.5320] },// Capital del Valle del Cauca, ciudad principal
+  { name: "Barranquilla", coords: [10.9639, -74.7964] },//Caribe, ciudad principal
+  { name: "Cartagena", coords: [10.3910, -75.4794] },// Caribe, ciudad principal
+  { name: "Bucaramanga", coords: [7.1193, -73.1227] },//  Santander, ciudad principal
+  { name: "Pereira", coords: [4.8143, -75.6946] },//  Eje Cafetero, ciudad principal
+  { name: "Santa Marta", coords: [11.2408, -74.1990] }, // Caribe
+  { name: "Manizales", coords: [5.0689, -75.5174] }, // Eje Cafetero
+  { name: "Cúcuta", coords: [7.8939, -72.5078] }, // Frontera con Venezuela
+  { name: "Villavicencio", coords: [4.1420, -73.6266] }, // Llanos Orientales
+  { name: "Ibagué", coords: [4.4375, -75.2006] }, // Tolima
+  { name: "Armenia", coords: [4.5380, -75.6721] } // Quindío
 ];
 
 function App() {
