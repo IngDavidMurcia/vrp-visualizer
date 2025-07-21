@@ -22,6 +22,7 @@ const PREDEFINED_CITIES = [
 ];
 
 function App() {
+  const markersRef = useRef([]);
   const [route, setRoute] = useState(null);
   const [selectedCities, setSelectedCities] = useState(
     PREDEFINED_CITIES.filter(c => c.isDepot || Math.random() < 0.3).slice(0, 3)
@@ -43,15 +44,21 @@ function App() {
 
   const removeRouteLayers = () => {
     try {
-      const layers = ['route-line', 'route-points', 'route-labels'];
-      layers.forEach(layer => {
-        if (map.current?.getLayer(layer)) map.current.removeLayer(layer);
-      });
-      if (map.current?.getSource('route')) map.current.removeSource('route');
+      const mapRef = map.current;
+      if (!mapRef) return;
+  
+      // Limpiar todas las capas y fuentes de rutas
+      for (let i = 0; i < 3; i++) {
+        const layerId = `route-line-${i}`;
+        const sourceId = `route-${i}`;
+        if (mapRef.getLayer(layerId)) mapRef.removeLayer(layerId);
+        if (mapRef.getSource(sourceId)) mapRef.removeSource(sourceId);
+      }
     } catch (error) {
       console.error("Error limpiando capas:", error);
     }
   };
+  
 
   // Menú de opciones
   const renderMenu = () => {
@@ -248,15 +255,15 @@ function App() {
     }
   }, [route, mapInitialized]);
 
-  // Funciones de mapa
+  // Funciones de mapa... borrar marcadores si habian calculos anteriores, dibujar nuevos marcadores y rutas
   const updateMapMarkers = () => {
     if (!map.current) return;
-
-    // Limpiar marcadores existentes
-    const markers = document.querySelectorAll('.mapboxgl-marker');
-    markers.forEach(marker => marker.remove());
-
-    // Añadir nuevos marcadores
+  
+    // 1. Limpiar marcadores anteriores (usando referencia)
+    markersRef.current.forEach(marker => marker.remove());
+    markersRef.current = [];
+  
+    // 2. Crear nuevos marcadores
     selectedCities.forEach((city, i) => {
       const markerElement = document.createElement('div');
       markerElement.className = 'custom-marker';
@@ -266,8 +273,8 @@ function App() {
           <div class="marker-label">${city.isDepot ? 'A' : `P${i}`}</div>
         </div>
       `;
-
-      new maplibregl.Marker({ element: markerElement })
+  
+      const marker = new maplibregl.Marker({ element: markerElement })
         .setLngLat([city.coords[1], city.coords[0]])
         .setPopup(new maplibregl.Popup().setHTML(`
           <div class="popup-content">
@@ -276,8 +283,11 @@ function App() {
           </div>
         `))
         .addTo(map.current);
+  
+      markersRef.current.push(marker);
     });
   };
+  
 
   const drawRoute = () => {
     if (!map.current || !route) return;
@@ -338,8 +348,11 @@ function App() {
         <button onClick={() => setActiveMenu('add-city')}>Añadir Ciudad</button>
         <button onClick={() => setActiveMenu('remove-city')}>Borrar Ciudades</button>
         <button onClick={() => setActiveMenu('vehicles')}>Vehículos: {numVehicles}</button>
-        <button onClick={optimizeRoute} disabled={isLoading}>
-          {isLoading ? 'Calculando...' : 'Calcular Ruta'}
+        <button onClick={() => {
+                                clearRoute(); // limpia resultados anteriores (panel y mapa)
+                                 setTimeout(() => optimizeRoute(), 100); // espera 100ms y calcula la nueva
+                                }}
+                              disabled={isLoading} > {isLoading ? 'Calculando...' : 'Calcular Ruta'}
         </button>
         <button onClick={clearRoute}>Borrar Ruta</button>
       </div>
